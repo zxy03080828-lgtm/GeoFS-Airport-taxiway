@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GeoFS Taxiway Only (No VPN | Matte Bright)
 // @version      3.0
-// @description  亮色哑光滑行道（无反光）+ 多Overpass节点
+// @description  滑行道
 // @author       TOMAIIM（Bilibili SandWolfShirak）
 // @match        https://geo-fs.com/geofs.php*
 // @match        https://*.geo-fs.com/geofs.php*
