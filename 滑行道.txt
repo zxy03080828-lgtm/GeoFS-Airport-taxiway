@@ -1,0 +1,175 @@
+// ==UserScript==
+// @name         GeoFS Taxiway Only (No VPN | Matte Bright)
+// @version      3.0
+// @description  亮色哑光滑行道（无反光）+ 多Overpass节点
+// @author       TOMAIIM（Bilibili SandWolfShirak）
+// @match        https://geo-fs.com/geofs.php*
+// @match        https://*.geo-fs.com/geofs.php*
+// @grant        TOMAIIM
+// ==/UserScript==
+
+(function() {
+    'use strict';
+    window.twSurfaces = [];
+    setTimeout(() => {window.updateTaxiways();}, 3000);
+})();
+
+// ---- 多节点 Overpass API ----
+const OVERPASS_SERVERS = [
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.openstreetmap.fr/api/interpreter",
+    "https://lz4.overpass-api.de/api/interpreter",
+    "https://overpass-api.de/api/interpreter"
+];
+
+async function fetchOverpass(bounds) {
+    const query = `[out:json][timeout:25];
+    (
+        way["aeroway"="taxiway"](${bounds});
+        way["aeroway"="taxilane"](${bounds});
+    );
+    out body;>;
+    out skel qt;`;
+
+    for (let i = 0; i < OVERPASS_SERVERS.length; i++) {
+        const url = OVERPASS_SERVERS[i];
+
+        try {
+            console.log("Trying Overpass:", url);
+
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 8000);
+
+            const response = await fetch(url + "?data=" + encodeURIComponent(query), {
+                signal: controller.signal
+            });
+
+            clearTimeout(timeout);
+
+            if (response.ok) {
+                console.log("Connected:", url);
+                return await response.json();
+            }
+        } catch (e) {
+            console.warn("Failed:", url);
+        }
+    }
+
+    throw new Error("All Overpass servers failed");
+}
+
+// ---- 主循环 ----
+window.updateTaxiways = async function() {
+    var renderDistance = 0.05;
+
+    var l0 = Math.floor(window.geofs.aircraft.instance.llaLocation[0]/renderDistance)*renderDistance;
+    var l1 = Math.floor(window.geofs.aircraft.instance.llaLocation[1]/renderDistance)*renderDistance;
+    var bounds = (l0) + ", " + (l1) + ", " + (l0+renderDistance) + ", " + (l1+renderDistance);
+
+    if (!window.lastBounds || window.lastBounds !== bounds) {
+
+        // 清除旧数据
+        window.twSurfaces.forEach(s => window.geofs.api.viewer.entities.remove(s));
+        window.twSurfaces = [];
+
+        try {
+            const data = await fetchOverpass(bounds);
+            if (data && data.elements) {
+                window.drawTaxiwaySurfaces(data);
+            }
+        } catch (e) {
+            console.warn("Taxiway fetch failed:", e);
+        }
+    }
+
+    window.lastBounds = bounds;
+
+    setTimeout(() => {window.updateTaxiways();}, 8000);
+};
+
+// ---- 绘制滑行道（亮色哑光版）----
+window.drawTaxiwaySurfaces = function(data) {
+    const nodes = {};
+    data.elements.forEach(el => {
+        if (el.type === 'node') nodes[el.id] = el;
+    });
+
+    data.elements.forEach(element => {
+        if (element.type === 'way') {
+
+            const coords = [];
+            let lastLon = null, lastLat = null;
+
+            element.nodes.forEach(id => {
+                const n = nodes[id];
+                if (n && (n.lon !== lastLon || n.lat !== lastLat)) {
+                    coords.push(n.lon, n.lat);
+                    lastLon = n.lon;
+                    lastLat = n.lat;
+                }
+            });
+
+            if (coords.length >= 4) {
+                const positions = window.Cesium.Cartesian3.fromDegreesArray(coords);
+
+                const surface = element.tags?.surface || "unknown";
+
+                // ===== 🎨 亮色但完全哑光 =====
+                let mainColor;
+                let edgeColor;
+
+                if (surface === "concrete") {
+                    mainColor = "#9a9a9a";   // 混凝土（更亮）
+                    edgeColor = "#6f6f6f";
+                } else {
+                    mainColor = "#5a5a5a";   // 沥青（亮但不反光）
+                    edgeColor = "#3f3f3f";
+                }
+
+                // ===== 边缘 =====
+                window.twSurfaces.push(window.geofs.api.viewer.entities.add({
+                    corridor: {
+                        positions: positions,
+                        width: 26.0,
+                        material: window.Cesium.Color.fromCssColorString(edgeColor),
+                        clampToGround: true,
+                        zIndex: 0
+                    }
+                }));
+
+                // ===== 主体 =====
+                window.twSurfaces.push(window.geofs.api.viewer.entities.add({
+                    corridor: {
+                        positions: positions,
+                        width: 18.0,
+                        material: window.Cesium.Color.fromCssColorString(mainColor),
+                        clampToGround: true,
+                        zIndex: 1
+                    }
+                }));
+
+                // ===== 黑边 =====
+                window.twSurfaces.push(window.geofs.api.viewer.entities.add({
+                    corridor: {
+                        positions: positions,
+                        width: 0.8,
+                        material: window.Cesium.Color.BLACK,
+                        clampToGround: true,
+                        zIndex: 2
+                    }
+                }));
+
+                // ===== 中心黄线 =====
+                window.twSurfaces.push(window.geofs.api.viewer.entities.add({
+                    corridor: {
+                        positions: positions,
+                        width: 0.4,
+                        material: window.Cesium.Color.fromCssColorString('#ffd400'),
+                        clampToGround: true,
+                        zIndex: 3
+                    }
+                }));
+            }
+        }
+    });
+};
