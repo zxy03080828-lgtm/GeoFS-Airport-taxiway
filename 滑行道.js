@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         GeoFS Taxiway Only (No VPN | Matte Bright)
+// @name         GeoFS Taxiway Only 
 // @version      3.0
 // @description  滑行道
 // @author       TOMAIIM（Bilibili SandWolfShirak）
